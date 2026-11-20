@@ -265,7 +265,10 @@ func (a *App) desiredKey(box pageBox) layoutKey {
 // requestLayout 决定“现在排”还是“等 150ms 再排”。窗口 resize 时
 // 保留旧 layout 和旧位图，重排完成后再整体换掉。
 func (a *App) requestLayout(c *Context, key layoutKey) {
-	if a.hasLayout && a.layoutKey == key {
+	// 同一章里的目录 fragment 不需要重新排版，但要让 job 调一次
+	// FragmentLine 才能算出页；这时不能因为 key 没变就提前返回。
+	force := a.wantPage == wantByLine && a.wantFragment != "" && !a.pending
+	if a.hasLayout && a.layoutKey == key && !force {
 		return
 	}
 	if a.pending && a.pendingKey == key {
@@ -275,8 +278,9 @@ func (a *App) requestLayout(c *Context, key layoutKey) {
 	} else {
 		now := c.Now()
 		var delay time.Duration
-		// 只有“同样内容、同样设置、只有窗口尺寸变了”才防抖。
-		if a.hasLayout && a.layoutKey.spine == key.spine && a.layoutKey.style == key.style {
+		// 只有“同样内容、同样设置、只有窗口尺寸变了”才防抖；
+		// 目录跳转要立刻响应。
+		if !force && a.hasLayout && a.layoutKey.spine == key.spine && a.layoutKey.style == key.style {
 			delay = layoutDebounce
 		}
 		a.pending = true
@@ -450,6 +454,13 @@ func (a *App) chapterTitle(spine int) string {
 func (a *App) goTOC(e TOCEntry) {
 	if e.Spine < 0 {
 		return // 封面、注释页等不在阅读顺序里
+	}
+	if e.Spine == a.spine && e.Fragment == "" {
+		// 同章的目录项没有 fragment：直接回到本章第一页。
+		a.page = 0
+		a.screen = screenReader
+		a.toolbar = false
+		return
 	}
 	a.spine = e.Spine
 	a.wantPage = wantByLine

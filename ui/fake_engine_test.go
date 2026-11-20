@@ -35,6 +35,7 @@ func newFakeEngine() *fakeEngine {
 		},
 		TOC: []TOCEntry{
 			{Label: "第一章 起", Spine: 0},
+			{Label: "第一节 深处", Spine: 0, Fragment: "deep", Depth: 1},
 			{Label: "第二章 承", Spine: 1, Fragment: "c2"},
 			{Label: "第三章 合", Spine: 2, Fragment: "c3", Depth: 1},
 		},
@@ -146,6 +147,8 @@ func (f *fakeEngine) FragmentLine(fragment string) (int, bool) {
 		return 8, true
 	case "c3":
 		return 12, true
+	case "deep":
+		return 90, true
 	}
 	return 0, false
 }

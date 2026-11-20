@@ -218,6 +218,27 @@ func TestResizeDebounceKeepsOldPage(t *testing.T) {
 	}
 }
 
+// 同一章内的目录 fragment 也要跳到对应页（key 没变，不能提前返回）。
+func TestTOCSameChapterFragment(t *testing.T) {
+	a, fe, tt := newTestReader(t)
+	a.openTOC()
+	tt.Frame()
+	calls := fe.layoutCount()
+	if err := tt.Click("第一节 深处"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.spine != 0 {
+		t.Fatalf("spine %d, want 0", a.spine)
+	}
+	if a.page == 0 {
+		t.Fatalf("same-chapter fragment did not move to a later page")
+	}
+	if fe.layoutCount() <= calls {
+		t.Fatalf("fragment jump did not run a layout job (%d -> %d)", calls, fe.layoutCount())
+	}
+}
+
 // 9. 主题改夜间后窗口配色和引擎纸色都变。
 func TestThemeNight(t *testing.T) {
 	a, _, tt := newTestReader(t)
