@@ -53,12 +53,14 @@ build_one() {
 	}
 
 	echo "==> $go_target ($rust_target)"
-	if ! rustup target list --installed | grep -qx "$rust_target"; then
-		echo "    rustup target add $rust_target"
-		rustup target add "$rust_target" >/dev/null
-	fi
-
-	(cd "$ENGINE_DIR" && cargo build --profile "$PROFILE" --target "$rust_target" -p ebook-abi --features parallel)
+	# 目标平台要在引擎仓库里装：那里有 rust-toolchain.toml，rustup 会按
+	# 固定的工具链来解析，装到别处等于没装。
+	(
+		cd "$ENGINE_DIR"
+		rustup target list --installed | grep -qx "$rust_target" ||
+			rustup target add "$rust_target"
+		cargo build --profile "$PROFILE" --target "$rust_target" -p ebook-abi --features parallel
+	)
 
 	local built="$ENGINE_DIR/target/$rust_target/$PROFILE/libebook_abi.a"
 	[ -f "$built" ] || {
