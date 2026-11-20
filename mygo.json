@@ -3,6 +3,20 @@
   "identifier": "com.laic.ebook",
   "version": "0.1.0",
   "out": "build",
+  "fileAssociations": [
+    {
+      "ext": ["epub"],
+      "name": "EPUB 电子书",
+      "mimeType": "application/epub+zip",
+      "role": "Viewer"
+    },
+    {
+      "ext": ["txt"],
+      "name": "纯文本",
+      "mimeType": "text/plain",
+      "role": "Viewer"
+    }
+  ],
   "ios": {
     "minimumSystemVersion": "17.0"
   }

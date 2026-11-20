@@ -67,9 +67,9 @@ type Bitmap struct {
 type Location struct{ Page, Line, Byte uint32 }
 
 type SelectionRect struct {
-	Page   uint32
-	X, Y   float32
-	W, H   float32
+	Page uint32
+	X, Y float32
+	W, H float32
 }
 
 type Selection struct {
@@ -97,7 +97,7 @@ type Style struct {
 
 // Viewport 是排版视口：页面区域（点）+ 四边内边距。
 type Viewport struct {
-	Width, Height float32
+	Width, Height            float32
 	Top, Right, Bottom, Left float32
 }
 

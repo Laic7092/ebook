@@ -38,6 +38,7 @@ const (
 	wantFirst         // 本章第一页
 	wantEnd           // 本章最后一页
 	wantByLine        // 跳到 wantFragment 所在页
+	wantAt            // 跳到 wantIndex 指定的页（恢复上次阅读位置）
 )
 
 // 窗口尺寸变化后等这么久再重排，期间继续显示旧页。
@@ -123,6 +124,18 @@ type App struct {
 	swipeDX       float32
 	swipeSettling bool
 
+	// 宿主提供的「打开文件」入口；为 nil 时界面上不显示打开按钮。
+	openFn func()
+
+	// 阅读位置变化时通知宿主，用来存「上次读到哪」。
+	onMove              func(spine, page int)
+	lastSpine, lastPage int
+
+	// 恢复上次阅读位置：open 之后、第一次排版完成时用掉。
+	restoreSpine, restorePage int
+	hasRestore                bool
+	wantIndex                 int
+
 	// 界面开关
 	screen  readerScreen
 	sidebar bool // regular 的左侧目录栏
@@ -153,6 +166,39 @@ func NewReader(eng Engine) *App {
 // SetWindow 让 App 能把后台 job 的结果回投到窗口。测试里不调用它，
 // 所有“慢活”就同步执行，测试不需要等 goroutine。
 func (a *App) SetWindow(w *mygo.Window) { a.win = w }
+
+// SetOpenHandler 让界面上的「打开文件」按钮去问宿主要一本书。
+// 打开的动作（系统对话框、最近打开的路径）都由宿主决定。
+func (a *App) SetOpenHandler(fn func()) { a.openFn = fn }
+
+// SetMoveHandler 在阅读位置变化时通知宿主（翻页、跳章、跳目录）。
+func (a *App) SetMoveHandler(fn func(spine, page int)) { a.onMove = fn }
+
+// Position 返回当前阅读位置，宿主可以存下来，下次用 Restore 接着读。
+func (a *App) Position() (spine, page int) { return a.spine, a.page }
+
+// Restore 记住一个阅读位置。书还没打开时先存着，打开后第一次排版完成
+// 就会跳过去；已经打开就直接跳。
+func (a *App) Restore(spine, page int) {
+	a.restoreSpine, a.restorePage, a.hasRestore = spine, page, true
+	if a.phase == phaseReady {
+		a.applyRestore()
+	}
+}
+
+func (a *App) applyRestore() {
+	if !a.hasRestore {
+		return
+	}
+	a.hasRestore = false
+	for _, ch := range a.book.Chapters {
+		if ch.Spine == a.restoreSpine {
+			a.spine = a.restoreSpine
+			break
+		}
+	}
+	a.wantPage, a.wantIndex = wantAt, a.restorePage
+}
 
 // Open 打开一本书。Open 可能在后台解析，所以没有返回值：错误进入
 // phaseError，由视图显示。
@@ -200,6 +246,7 @@ func (a *App) finishOpen(book Book, toc []TOCEntry, base float32, err error) {
 	a.rastering = map[rasterKey]bool{}
 	a.failed = map[rasterKey]bool{}
 	a.fallback = nil
+	a.applyRestore()
 }
 
 // dispatch 把慢活放后台；测试里（没有窗口）直接执行。
@@ -255,6 +302,11 @@ func (a *App) View(c *Context) {
 	// 设置面板里的控件可能在这一帧改了字号/主题；再请求一次，
 	// 下一帧就会按新设置排版。
 	a.requestLayout(c, a.desiredKey(box))
+
+	if a.onMove != nil && (a.spine != a.lastSpine || a.page != a.lastPage) {
+		a.lastSpine, a.lastPage = a.spine, a.page
+		a.onMove(a.spine, a.page)
+	}
 }
 
 func (a *App) desiredKey(box pageBox) layoutKey {
@@ -368,6 +420,8 @@ func (a *App) finishLayout(key layoutKey, gen int, res layoutResult) {
 		a.page = 0
 	case a.wantPage == wantEnd:
 		a.page = max(0, total-key.columns)
+	case a.wantPage == wantAt:
+		a.page = a.wantIndex
 	case a.wantPage == wantByLine:
 		line := a.wantLine
 		if res.lineOK {
@@ -571,8 +625,16 @@ func (a *App) buildStatus(c *Context) {
 		case phaseError:
 			Text(c, a.errText).TextColor(t.Danger).TextAlign(Center).MaxWidth(420)
 		default:
-			Text(c, "尚未接入排版引擎").TextColor(t.TextMuted)
-			Text(c, "把 ui.NewReader(engine) 接到 internal/engine 即可。").TextColor(t.TextMuted).FontSize(13)
+			if a.eng == nil {
+				Text(c, "尚未接入排版引擎").TextColor(t.TextMuted)
+				Text(c, "把 ui.NewReader(engine) 接到 internal/engine 即可。").TextColor(t.TextMuted).FontSize(13)
+				return
+			}
+			Text(c, "还没有打开书").TextColor(t.TextMuted)
+			if a.openFn != nil {
+				Button(c, "打开 EPUB / TXT").OnClick(a.openFn)
+			}
+			Text(c, "也可以把书拖进窗口，或在文件管理里选「用 eBook 打开」。").TextColor(t.TextMuted).FontSize(13).TextAlign(Center).MaxWidth(420)
 		}
 	})
 }

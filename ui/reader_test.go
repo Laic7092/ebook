@@ -273,3 +273,52 @@ func TestWheelTurnsPage(t *testing.T) {
 		t.Fatalf("wheel: page %d, want 2", a.page)
 	}
 }
+
+// 7. 没有书的时候邀请用户打开；「打开文件」的活交给宿主。
+func TestEmptyStateInvitesOpen(t *testing.T) {
+	fe := newFakeEngine()
+	a := NewReader(fe)
+	clicked := 0
+	a.SetOpenHandler(func() { clicked++ })
+
+	tt := NewTester(a.View, 390, 844)
+	tt.Frame()
+	if !tt.HasText("还没有打开书") {
+		t.Fatalf("texts %q", tt.Texts())
+	}
+	if err := tt.Click("打开 EPUB / TXT"); err != nil {
+		t.Fatal(err)
+	}
+	if clicked != 1 {
+		t.Fatalf("open handler called %d times", clicked)
+	}
+
+	// 引擎缺失时才提示没接引擎。
+	none := NewReader(nil)
+	nt := NewTester(none.View, 390, 844)
+	nt.Frame()
+	if !nt.HasText("尚未接入排版引擎") {
+		t.Fatalf("texts %q", nt.Texts())
+	}
+}
+
+// 8. 恢复上次阅读位置：打开书后直接停在存下来的那页。
+func TestRestorePosition(t *testing.T) {
+	fe := newFakeEngine()
+	a := NewReader(fe)
+	a.Restore(1, 0)
+	a.Open("test.epub", nil)
+
+	tt := NewTester(a.View, 390, 844)
+	tt.Frame()
+	if a.spine != 1 || a.page != 0 {
+		t.Fatalf("spine/page %d/%d, want 1/0", a.spine, a.page)
+	}
+	var moved [2]int
+	a.SetMoveHandler(func(spine, page int) { moved = [2]int{spine, page} })
+	tt.ClickAt(370, 400) // 右 1/3 翻页
+	tt.Frame()
+	if moved != [2]int{1, 1} {
+		t.Fatalf("move handler got %v, want [1 1]", moved)
+	}
+}

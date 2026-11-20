@@ -73,8 +73,8 @@ func (w *wbuf) u64(v uint64) {
 	w.b = append(w.b, byte(v))
 }
 
-func (w *wbuf) u32(v uint32)  { w.u64(uint64(v)) }
-func (w *wbuf) u8(v uint8)    { w.b = append(w.b, v) }
+func (w *wbuf) u32(v uint32) { w.u64(uint64(v)) }
+func (w *wbuf) u8(v uint8)   { w.b = append(w.b, v) }
 func (w *wbuf) boolean(v bool) {
 	if v {
 		w.b = append(w.b, 1)
