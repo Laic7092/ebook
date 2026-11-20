@@ -7,12 +7,12 @@ import (
 	myui "github.com/egoist/mygo/ui"
 )
 
-// 没有打开书时窗口也能开：显示未打开书籍的占位页。
+// 没有引擎时窗口也能开：显示未接入引擎的占位页。
 func TestShellWithoutEngine(t *testing.T) {
-	a := ui.New(nil)
+	a := ui.NewReader(nil)
 	tt := myui.NewTester(a.View, 390, 844)
 	tt.Frame()
-	if !tt.HasText("未打开书籍") {
+	if !tt.HasText("尚未接入排版引擎") {
 		t.Errorf("texts %q", tt.Texts())
 	}
 }
