@@ -26,10 +26,19 @@ jobs:
       - name: Report Xcode
         run: xcodebuild -version
 
-      # 引擎是 Rust 静态库，必须先交叉编译成 aarch64-apple-ios 再让 cgo 去链接。
+      # 引擎在另一个仓库里：Rust 静态库要先交叉编译成 aarch64-apple-ios，
+      # cgo 才能在链接阶段找到 eb_* 这些符号。
+      - name: Checkout the Rust engine
+        uses: actions/checkout@v7
+        with:
+          repository: Laic7092/ebook-engine
+          path: ebook-engine
+          ref: main
+
       - name: Build the Rust engine (aarch64-apple-ios)
+        env:
+          ENGINE_DIR: ${{ github.workspace }}/ebook-engine
         run: |
-          rustup target add aarch64-apple-ios
           ./scripts/build-engine.sh ios_arm64
           ls -lh internal/engine/native/ios_arm64/
 
