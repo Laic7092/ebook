@@ -26,6 +26,13 @@ jobs:
       - name: Report Xcode
         run: xcodebuild -version
 
+      # 引擎是 Rust 静态库，必须先交叉编译成 aarch64-apple-ios 再让 cgo 去链接。
+      - name: Build the Rust engine (aarch64-apple-ios)
+        run: |
+          rustup target add aarch64-apple-ios
+          ./scripts/build-engine.sh ios_arm64
+          ls -lh internal/engine/native/ios_arm64/
+
       - name: Build the unsigned IPA
         run: bash .github/scripts/build-unsigned-ipa.sh
 
