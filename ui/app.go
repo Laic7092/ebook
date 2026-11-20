@@ -114,6 +114,9 @@ type App struct {
 	bitmaps   map[rasterKey]*Bitmap
 	rastering map[rasterKey]bool
 	failed    map[rasterKey]bool
+	// fallback 是上一份 layout 正在显示的页。重排完成、新页还没
+	// 光栅化好时先继续显示，不让窗口闪成空白。
+	fallback []*Bitmap
 
 	// compact 的滑动手势
 	gesture       swipeGesture
@@ -196,6 +199,7 @@ func (a *App) finishOpen(book Book, toc []TOCEntry, base float32, err error) {
 	a.bitmaps = map[rasterKey]*Bitmap{}
 	a.rastering = map[rasterKey]bool{}
 	a.failed = map[rasterKey]bool{}
+	a.fallback = nil
 }
 
 // dispatch 把慢活放后台；测试里（没有窗口）直接执行。
@@ -341,6 +345,16 @@ func (a *App) finishLayout(key layoutKey, gen int, res layoutResult) {
 
 	oldKey, oldLayout, oldPage := a.layoutKey, a.layout, a.page
 	lay := res.layout
+	// 同一章内重排（resize/字号）：记住旧页，新位图回来前继续显示。
+	a.fallback = nil
+	if oldKey.spine == key.spine && oldKey != key {
+		slots := max(1, key.columns)
+		fb := make([]*Bitmap, slots)
+		for i := 0; i < max(1, oldKey.columns) && i < slots; i++ {
+			fb[i] = a.bitmaps[rasterKey{layout: oldKey, page: oldPage + i}]
+		}
+		a.fallback = fb
+	}
 	a.layout, a.layoutKey, a.hasLayout = lay, key, true
 	a.bitmaps = map[rasterKey]*Bitmap{}
 	a.rastering = map[rasterKey]bool{}

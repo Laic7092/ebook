@@ -39,6 +39,10 @@ func (a *App) buildPages(c *Context, box pageBox) {
 				case a.bitmaps[rk] != nil:
 					Image(c, a.bitmaps[rk]).Size(slotW, slotH).Fit(Contain).
 						Label("第 " + itoa(idx+1) + " 页")
+				case i < len(a.fallback) && a.fallback[i] != nil:
+					// 新页还在光栅化：继续显示旧页，重排时不闪白。
+					Image(c, a.fallback[i]).Size(slotW, slotH).Fit(Contain).
+						Opacity(0.7).Label("正在重新排版")
 				case a.failed[rk]:
 					Text(c, "无法渲染此页").TextColor(c.Theme().Danger).FontSize(13)
 				default:
@@ -114,6 +118,29 @@ func (a *App) finishRaster(rk rasterKey, r Raster, err error) {
 	}
 	a.bitmaps[rk] = NewBitmap(img)
 	a.failed[rk] = false
+	if a.visibleRastersReady() {
+		a.fallback = nil
+	}
+}
+
+// visibleRastersReady 报告当前屏上的页是否都已光栅化（失败也算，
+// 失败会显示错误文字，不必再保留旧页）。
+func (a *App) visibleRastersReady() bool {
+	if !a.hasLayout {
+		return true
+	}
+	cols := max(1, a.layoutKey.columns)
+	for i := 0; i < cols; i++ {
+		idx := a.page + i
+		if idx >= len(a.layout.Pages) {
+			break
+		}
+		rk := rasterKey{layout: a.layoutKey, page: idx}
+		if a.bitmaps[rk] == nil && !a.failed[rk] {
+			return false
+		}
+	}
+	return true
 }
 
 // swipeOffset 返回页面容器的水平偏移。拖动时跟手；松手未过阈值时
