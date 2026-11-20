@@ -1,117 +1,84 @@
 package ui
 
-import (
-	"fmt"
+import . "github.com/egoist/mygo/ui"
 
-	myui "github.com/egoist/mygo/ui"
-)
-
-// settingsSheet 是阅读设置：字号、行距、主题、加粗。
-//
-// 全是"改 State → 请求一帧"的按钮/开关：`ensureRender` 每帧比较
-// `Style`，设置一变下一帧就重新排版并光栅化。
-func (a *App) settingsSheet(c *myui.Context, th *myui.Theme) {
-	myui.Column(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).
-		Background(th.Background).Children(func() {
-		myui.Row(c).Height(56).Padding(0, 8, 0, 16).Gap(8).
-			AlignItems(myui.Center).Children(func() {
-			if myui.Button(c, "←").Label("关闭设置").Height(44).PaddingX(14).Clicked() {
-				a.settingsOpen = false
-				a.requestFrame()
+// settingsControls 是字号、行距、主题、加粗。两种布局共用这一份。
+func (a *App) settingsControls(c *Context, compact bool) {
+	t := c.Theme()
+	Column(c).Gap(18).Children(func() {
+		// 字号
+		Row(c).Gap(8).AlignItems(Center).Children(func() {
+			Text(c, "字号").Grow(1)
+			if Button(c.Key("font-dec"), "字号 -").Clicked() {
+				a.adjustFont(-0.1)
 			}
-			myui.Text(c, "阅读设置").FontSize(17).Bold().Grow(1)
+			Textf(c, "%.0f pt", a.fontPoints()).Width(64).TextAlign(Center).TextColor(t.TextMuted)
+			if Button(c.Key("font-inc"), "字号 +").Clicked() {
+				a.adjustFont(0.1)
+			}
 		})
-		myui.Divider(c)
 
-		myui.Scroll(c).Fill().Children(func() {
-			myui.Column(c).Padding(16, 16, 24, 16).Gap(16).Children(func() {
-				a.stepperRow(c, th, "字号", fmt.Sprintf("%d%%", percent(a.State.FontScale)),
-					func() { a.adjustFont(-0.1) },
-					func() { a.adjustFont(0.1) },
-				)
-				a.stepperRow(c, th, "行距", fmt.Sprintf("%.1f×", a.State.LineScale),
-					func() { a.adjustLine(-0.1) },
-					func() { a.adjustLine(0.1) },
-				)
+		// 行距
+		Row(c).Gap(8).AlignItems(Center).Children(func() {
+			Text(c, "行距").Grow(1)
+			if Button(c.Key("line-dec"), "行距 -").Clicked() {
+				a.adjustLine(-0.1)
+			}
+			Textf(c, "%.1f×", a.style.LineScale).Width(52).TextAlign(Center).TextColor(t.TextMuted)
+			if Button(c.Key("line-inc"), "行距 +").Clicked() {
+				a.adjustLine(0.1)
+			}
+		})
 
-				myui.Row(c).AlignItems(myui.Center).Gap(12).Children(func() {
-					myui.Text(c, "主题").Width(64).TextColor(th.TextMuted)
-					paper := myui.Button(c, "纸色").Height(40).PaddingX(16)
-					night := myui.Button(c, "夜间").Height(40).PaddingX(16)
-					if a.State.Theme == ThemePaper {
-						paper.Bold()
-					} else {
-						night.Bold()
+		// 主题纸色 / 夜间
+		Column(c).Gap(6).Children(func() {
+			Text(c, "主题").TextColor(t.TextMuted).FontSize(12)
+			Row(c).Gap(8).Children(func() {
+				for i, name := range []string{"纸白", "米黄", "夜间"} {
+					if Button(c.Key([2]int{1, i}), name).Grow(1).Clicked() {
+						a.setTheme(readingTheme(i))
 					}
-					if paper.Clicked() && a.State.Theme != ThemePaper {
-						a.State.Theme = ThemePaper
-						a.requestFrame()
-					}
-					if night.Clicked() && a.State.Theme != ThemeNight {
-						a.State.Theme = ThemeNight
-						a.requestFrame()
-					}
-				})
-
-				myui.Row(c).AlignItems(myui.Center).Gap(12).Children(func() {
-					myui.Text(c, "加粗").Width(64).TextColor(th.TextMuted)
-					if myui.Switch(c, &a.State.Bold).Changed() {
-						a.requestFrame()
-					}
-					myui.Text(c, "让正文笔画更重（不改排版位置）").FontSize(13).
-						TextColor(th.TextMuted)
-				})
-
-				myui.Text(c, "设置会立刻重新排版；关闭窗口后会记住。").FontSize(13).
-					TextColor(th.TextMuted)
+				}
 			})
 		})
-	})
-}
 
-// stepperRow 是一行"标签 + − + 值 + +"。
-func (a *App) stepperRow(
-	c *myui.Context,
-	th *myui.Theme,
-	label string,
-	value string,
-	minus func(),
-	plus func(),
-) {
-	myui.Row(c).AlignItems(myui.Center).Gap(12).Children(func() {
-		myui.Text(c, label).Width(64).TextColor(th.TextMuted)
-		if myui.Button(c, "−").Label("减小" + label).Height(40).Width(40).Clicked() {
-			minus()
-		}
-		myui.Text(c, value).Width(72).TextAlign(myui.Center)
-		if myui.Button(c, "+").Label("增大" + label).Height(40).Width(40).Clicked() {
-			plus()
+		// 加粗
+		Row(c).Gap(8).AlignItems(Center).Children(func() {
+			Text(c, "加粗").Grow(1)
+			Switch(c.Key("bold"), &a.style.Bold).Label("加粗正文")
+		})
+
+		if compact {
+			Text(c, "排版完成后自动回到当前阅读位置。").FontSize(12).TextColor(t.TextMuted)
 		}
 	})
 }
 
-// adjustFont 按 10% 步进改字号。
-func (a *App) adjustFont(delta float64) {
-	a.State.FontScale = clampF(a.State.FontScale+delta, 0.6, 2.4)
-	a.requestFrame()
+// buildSettingsScreen 是 compact 的全屏设置面板。
+func (a *App) buildSettingsScreen(c *Context) {
+	t := c.Theme()
+	Column(c).Fill().Background(t.Background).Children(func() {
+		Row(c).Height(56).PaddingX(8).Gap(8).AlignItems(Center).Children(func() {
+			Button(c.Key("settings-back"), "返回").OnClick(func() { a.screen = screenReader })
+			Text(c, "阅读设置").FontSize(18).Bold()
+		})
+		Scroll(c).Grow(1).Padding(16).Children(func() {
+			a.settingsControls(c, true)
+		})
+	})
 }
 
-// adjustLine 按 0.1 步进改行距。
-func (a *App) adjustLine(delta float64) {
-	a.State.LineScale = clampF(a.State.LineScale+delta, 0.8, 2.0)
-	a.requestFrame()
-}
-
-func clampF(v, lo, hi float64) float64 {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
-}
-
-func percent(v float64) int {
-	return int(v*100 + 0.5)
+// settingsPanel 是 regular 右侧的设置浮层。
+func (a *App) settingsPanel(c *Context) {
+	t := c.Theme()
+	Column(c).Absolute().Top(regularBarHeight).Bottom(regularFootHeight).Right(0).Width(320).
+		Padding(16).Gap(16).Background(t.Surface).Border(1, t.Border).Children(func() {
+		Row(c).Gap(8).AlignItems(Center).Children(func() {
+			Text(c, "阅读设置").FontSize(16).Bold().Grow(1)
+			Button(c.Key("settings-close"), "关闭").OnClick(func() { a.screen = screenReader })
+		})
+		Scroll(c).Grow(1).Children(func() {
+			a.settingsControls(c, false)
+		})
+	})
 }

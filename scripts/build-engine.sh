@@ -9,16 +9,13 @@
 # 环境变量：
 #   ENGINE_DIR  ebook-engine 仓库位置（默认 ../ebook-engine）
 #   PROFILE     cargo profile（默认 native：opt-level=3 + panic=unwind + 不开 LTO）
-#
-# 为什么要 `objcopy --remove-section=.llvmbc`：Rust 的 std 预编译对象里带
-# LLVM bitcode 段，Go 的链接器见到 `.llvmbc` 会直接拒绝（disallowed LTO
-# section）。去掉这两个段不影响代码，只是让 Go 的检查满意。
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 REPO_ROOT=$(pwd)
 ENGINE_DIR=${ENGINE_DIR:-$REPO_ROOT/../ebook-engine}
 PROFILE=${PROFILE:-native}
+STRIP_TOOL=$REPO_ROOT/scripts/strip-bitcode.py
 
 rust_target_of() {
 	case "$1" in
@@ -42,6 +39,24 @@ host_target() {
 	Darwin-x86_64) echo darwin_amd64 ;;
 	*) echo "不认识的宿主平台: $(uname -s)-$(uname -m)" >&2; return 1 ;;
 	esac
+}
+
+# 去掉静态库成员里的 LLVM bitcode 段：Go 的 cgo 检查会拒绝它们
+# （`disallowed LTO section __LLVM,__bitcode in #cgo LDFLAGS`）。
+#
+# Mach-O（iOS/macOS）用 scripts/strip-bitcode.py 原位改段名——运行器上通常
+# 没有 objcopy/segedit，Python 一定有。ELF（Linux）用 objcopy 删段。
+strip_bitcode() {
+	local archive=$1
+	python3 "$STRIP_TOOL" "$archive" || true
+	for tool in objcopy llvm-objcopy "xcrun llvm-objcopy"; do
+		# shellcheck disable=SC2086
+		$tool --remove-section=.llvmbc --remove-section=.llvmcmd "$archive" 2>/dev/null && break
+	done
+	if ! python3 "$STRIP_TOOL" --check "$archive"; then
+		echo "    警告：$archive 里还有 bitcode 段，Go 链接会失败" >&2
+		return 1
+	fi
 }
 
 build_one() {
@@ -71,13 +86,7 @@ build_one() {
 	local dest="$REPO_ROOT/internal/engine/native/$go_target"
 	mkdir -p "$dest"
 	cp "$built" "$dest/libebook_abi.a"
-	if command -v objcopy >/dev/null 2>&1; then
-		objcopy --remove-section=.llvmbc --remove-section=.llvmcmd "$dest/libebook_abi.a" 2>/dev/null || true
-	elif command -v llvm-objcopy >/dev/null 2>&1; then
-		llvm-objcopy --remove-section=.llvmbc --remove-section=.llvmcmd "$dest/libebook_abi.a" 2>/dev/null || true
-	else
-		echo "    警告：没有 objcopy，Go 链接可能因为 .llvmbc 段失败" >&2
-	fi
+	strip_bitcode "$dest/libebook_abi.a"
 	ls -lh "$dest/libebook_abi.a" | awk '{print "    " $5 "  " $9}'
 }
 

@@ -35,6 +35,16 @@ jobs:
           path: ebook-engine
           ref: main
 
+      # mygo 没有给 iOS 最终链接加输入的口子，cgo 的 LDFLAGS 在 c-archive
+      # 模式下也不生效；用一个三行补丁让它读 MYGO_IOS_LINK_FLAGS。
+      - name: Build mygo with the iOS link flags patch
+        run: |
+          git clone --depth 1 --branch v0.10.0 https://github.com/egoist/mygo "$RUNNER_TEMP/mygo-src"
+          python3 .github/scripts/patch-mygo-ios-link.py "$RUNNER_TEMP/mygo-src/cmd/mygo/ios.go"
+          (cd "$RUNNER_TEMP/mygo-src" && go build -o "$RUNNER_TEMP/bin/mygo" ./cmd/mygo)
+          "$RUNNER_TEMP/bin/mygo" --version
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
       - name: Build the Rust engine (aarch64-apple-ios)
         env:
           ENGINE_DIR: ${{ github.workspace }}/ebook-engine

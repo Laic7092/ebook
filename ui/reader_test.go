@@ -1,192 +1,275 @@
 package ui
 
 import (
-	"strconv"
 	"testing"
+	"time"
 
-	myui "github.com/egoist/mygo/ui"
+	. "github.com/egoist/mygo/ui"
 )
 
-func newTestReader(t *testing.T) (*App, *fakeEngine, *myui.Tester) {
+func newTestReader(t *testing.T) (*App, *fakeEngine, *Tester) {
 	t.Helper()
 	fe := newFakeEngine()
-	a := New(fe)
-	if err := a.Open("test.epub", nil); err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	tt := myui.NewTester(a.View, 390, 844)
+	a := NewReader(fe)
+	a.Open("test.epub", nil)
+	tt := NewTester(a.View, 390, 844)
 	tt.Frame()
-	if a.pageCount() == 0 {
-		t.Fatalf("第一帧没有排版出页面：%q", tt.Texts())
+	if !a.hasLayout {
+		t.Fatalf("first frame laid out nothing; texts %q", tt.Texts())
 	}
 	return a, fe, tt
 }
 
-// 第一帧：书名、页码、整页位图都在。
-func TestFirstFrameShowsPage(t *testing.T) {
+// 1. compact 点击左右 1/3 翻页，中间切换工具栏。
+func TestCompactTapZones(t *testing.T) {
 	a, _, tt := newTestReader(t)
-	if !tt.HasText("测试之书") {
-		t.Fatalf("书名没画出来：%q", tt.Texts())
+	if a.page != 0 {
+		t.Fatalf("start page %d", a.page)
 	}
-	if !tt.HasText("1 / " + strconv.Itoa(a.pageCount())) {
-		t.Fatalf("页码没画出来：%q", tt.Texts())
+	tt.ClickAt(370, 400)
+	tt.Frame()
+	if a.page != 1 {
+		t.Fatalf("right third: page %d, want 1", a.page)
 	}
-	if a.bitmap == nil {
-		t.Fatalf("没有光栅化出位图")
+	tt.ClickAt(370, 400)
+	tt.Frame()
+	if a.spine != 1 || a.page != 0 {
+		t.Fatalf("past end: spine %d page %d, want 1/0", a.spine, a.page)
+	}
+	tt.ClickAt(20, 400)
+	tt.Frame()
+	if a.spine != 0 {
+		t.Fatalf("left third at chapter start: spine %d, want 0", a.spine)
 	}
 }
 
-// 点击左/右三分之一翻页，中间切换工具栏。
-func TestTapZones(t *testing.T) {
+// 2. 水平滑动超过 1/4 页宽翻页，未超过回弹。
+func TestCompactSwipe(t *testing.T) {
 	a, _, tt := newTestReader(t)
-
-	tt.ClickAt(360, 420) // 右 1/3
+	tt.Press(340, 400)
+	tt.Move(60, 400)
+	tt.Release(60, 400)
 	tt.Frame()
-	if a.State.Page != 1 {
-		t.Fatalf("右点之后 page = %d, want 1", a.State.Page)
+	if a.page != 1 {
+		t.Fatalf("swipe left: page %d, want 1", a.page)
 	}
-	if !tt.HasText("2 / " + strconv.Itoa(a.pageCount())) {
-		t.Errorf("页码没更新：%q", tt.Texts())
-	}
-
-	tt.ClickAt(20, 420) // 左 1/3
+	tt.Press(200, 400)
+	tt.Move(170, 400) // 30pt，远小于 1/4 页宽
+	tt.Release(170, 400)
 	tt.Frame()
-	if a.State.Page != 0 {
-		t.Fatalf("左点之后 page = %d, want 0", a.State.Page)
+	if a.page != 1 {
+		t.Fatalf("short drag turned page: %d", a.page)
 	}
-
-	before := a.chrome
-	tt.ClickAt(195, 420) // 中间
-	tt.Frame()
-	if a.chrome == before {
-		t.Errorf("中间点击没有切换工具栏")
+	if a.swipeSettling || a.swipeDX != 0 {
+		t.Fatalf("short drag did not settle: dx %v settling %v", a.swipeDX, a.swipeSettling)
 	}
 }
 
-// 水平滑动超过阈值翻页；竖直方向的拖动不算。
-func TestSwipe(t *testing.T) {
-	a, _, tt := newTestReader(t)
-
-	tt.Press(340, 420)
-	tt.Move(240, 421)
-	tt.Move(60, 422)
-	tt.Release(60, 422)
-	tt.Frame()
-	if a.State.Page != 1 {
-		t.Fatalf("左滑 page = %d, want 1", a.State.Page)
+// 3. 中间点击显示/隐藏浮动工具栏。
+func TestCompactToolbarToggle(t *testing.T) {
+	_, _, tt := newTestReader(t)
+	if tt.HasText("目录") {
+		t.Fatal("toolbar visible before a tap")
 	}
-
-	tt.Press(60, 300)
-	tt.Move(70, 420)
-	tt.Release(70, 420)
+	tt.ClickAt(195, 400)
 	tt.Frame()
-	if a.State.Page != 1 {
-		t.Errorf("竖直拖动不该翻页，page = %d", a.State.Page)
+	if !tt.HasText("目录") || !tt.HasText("设置") {
+		t.Fatalf("toolbar not shown; texts %q", tt.Texts())
+	}
+	tt.ClickAt(195, 400)
+	tt.Frame()
+	if tt.HasText("目录") {
+		t.Fatalf("toolbar still shown; texts %q", tt.Texts())
 	}
 }
 
-// 键盘翻页。
-func TestKeyboard(t *testing.T) {
-	a, _, tt := newTestReader(t)
-
-	tt.Key(0, myui.KeyRight)
-	tt.Frame()
-	if a.State.Page != 1 {
-		t.Fatalf("→ page = %d, want 1", a.State.Page)
-	}
-	tt.Key(0, myui.KeyLeft)
-	tt.Frame()
-	if a.State.Page != 0 {
-		t.Fatalf("← page = %d, want 0", a.State.Page)
-	}
-	tt.Key(0, myui.KeySpace)
-	tt.Frame()
-	if a.State.Page != 1 {
-		t.Fatalf("空格 page = %d, want 1", a.State.Page)
-	}
-}
-
-// 目录：打开、点条目跳章，fragment 被换算成页。
+// 4. 目录全屏列表跳转，跳到目标章并关闭目录。
 func TestTOCJump(t *testing.T) {
 	a, _, tt := newTestReader(t)
+	tt.ClickAt(195, 400)
+	tt.Frame()
+	if err := tt.Click("目录"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.screen != screenTOC {
+		t.Fatalf("screen %v, want TOC", a.screen)
+	}
+	if err := tt.Click("第二章 承"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.spine != 1 {
+		t.Fatalf("spine %d, want 1", a.spine)
+	}
+	if a.screen != screenReader {
+		t.Fatalf("TOC stayed open: %v", a.screen)
+	}
+}
 
+// 5. 设置里改字号会触发一次新的排版。
+func TestFontSizeRelayout(t *testing.T) {
+	a, fe, tt := newTestReader(t)
+	tt.ClickAt(195, 400)
+	tt.Frame()
+	if err := tt.Click("设置"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	before := a.style.FontScale
+	calls := fe.layoutCount()
+	if err := tt.Click("字号 +"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.style.FontScale <= before {
+		t.Fatalf("font scale %v, want > %v", a.style.FontScale, before)
+	}
+	if fe.layoutCount() <= calls {
+		t.Fatalf("layout calls %d, want > %d", fe.layoutCount(), calls)
+	}
+}
+
+// 6. regular 宽窗口双页对开。
+func TestRegularSpread(t *testing.T) {
+	fe := newFakeEngine()
+	a := NewReader(fe)
+	a.Open("test.epub", nil)
+	tt := NewTester(a.View, 1200, 800)
+	tt.Frame()
+	if a.columns != 2 || a.layoutKey.columns != 2 {
+		t.Fatalf("columns %d/%d, want 2", a.columns, a.layoutKey.columns)
+	}
+	if len(a.layout.Pages) < 2 {
+		t.Fatalf("pages %d, want >= 2", len(a.layout.Pages))
+	}
+	if got := a.pageLabel(); got != "1–2 / 3" {
+		t.Fatalf("page label %q", got)
+	}
+	if len(a.bitmaps) != 2 {
+		t.Fatalf("bitmaps %d, want 2", len(a.bitmaps))
+	}
+}
+
+// 7. regular 键盘翻页和 ⌘/Ctrl +/- 调字号。
+func TestKeyboard(t *testing.T) {
+	fe := newFakeEngine()
+	a := NewReader(fe)
+	a.Open("test.epub", nil)
+	tt := NewTester(a.View, 1200, 800)
+	tt.Frame()
+	tt.Key(0, KeyRight)
+	tt.Frame()
+	if a.page != 2 {
+		t.Fatalf("right: page %d, want 2", a.page)
+	}
+	tt.Key(0, KeyLeft)
+	tt.Frame()
+	if a.page != 0 {
+		t.Fatalf("left: page %d, want 0", a.page)
+	}
+	tt.Key(0, KeySpace)
+	tt.Frame()
+	if a.page != 2 {
+		t.Fatalf("space: page %d, want 2", a.page)
+	}
+	scale := a.style.FontScale
+	tt.Key(uiCmd, KeyEqual)
+	tt.Frame()
+	if a.style.FontScale <= scale {
+		t.Fatalf("Cmd+= did not grow the font: %v", a.style.FontScale)
+	}
+}
+
+// 8. resize 先防抖，期间保留旧页；150ms 后按新宽度重排。
+func TestResizeDebounceKeepsOldPage(t *testing.T) {
+	fe := newFakeEngine()
+	a := NewReader(fe)
+	a.Open("test.epub", nil)
+	tt := NewTester(a.View, 1200, 800)
+	tt.Frame()
+	oldKey := a.layoutKey
+	calls := fe.layoutCount()
+	if len(a.bitmaps) == 0 {
+		t.Fatal("no bitmaps before resize")
+	}
+
+	tt.SetSize(640, 900)
+	if a.layoutKey != oldKey {
+		t.Fatalf("layout changed before debounce: %+v -> %+v", oldKey, a.layoutKey)
+	}
+	if len(a.bitmaps) == 0 {
+		t.Fatal("old pages dropped during relayout")
+	}
+	if a.columns != 1 {
+		t.Fatalf("columns %d, want 1 after narrow resize", a.columns)
+	}
+
+	tt.Advance(200 * time.Millisecond)
+	tt.Frame()
+	if a.layoutKey == oldKey {
+		t.Fatal("layout not redone after debounce")
+	}
+	if a.layoutKey.columns != 1 {
+		t.Fatalf("new layout columns %d, want 1", a.layoutKey.columns)
+	}
+	if fe.layoutCount() <= calls {
+		t.Fatalf("layout calls %d, want > %d", fe.layoutCount(), calls)
+	}
+}
+
+// 同一章内的目录 fragment 也要跳到对应页（key 没变，不能提前返回）。
+func TestTOCSameChapterFragment(t *testing.T) {
+	a, fe, tt := newTestReader(t)
 	a.openTOC()
 	tt.Frame()
-	if !tt.HasText("目录") {
-		t.Fatalf("目录没打开：%q", tt.Texts())
-	}
-	if err := tt.Click("第二章 下雨"); err != nil {
-		t.Fatalf("点目录项: %v", err)
+	calls := fe.layoutCount()
+	if err := tt.Click("第一节 深处"); err != nil {
+		t.Fatal(err)
 	}
 	tt.Frame()
-	if a.State.Spine != 1 {
-		t.Fatalf("跳转后 spine = %d, want 1", a.State.Spine)
+	if a.spine != 0 {
+		t.Fatalf("spine %d, want 0", a.spine)
 	}
-	if a.tocOpen {
-		t.Errorf("跳转之后目录没关")
+	if a.page == 0 {
+		t.Fatalf("same-chapter fragment did not move to a later page")
 	}
-	// 假引擎说 fragment "ch2" 在第 25 行，每页 20 行 → 第 2 页。
-	if a.State.Page != 1 {
-		t.Errorf("跳转后 page = %d, want 1", a.State.Page)
+	if fe.layoutCount() <= calls {
+		t.Fatalf("fragment jump did not run a layout job (%d -> %d)", calls, fe.layoutCount())
 	}
 }
 
-// 改设置会触发重新排版，并且页码回到合理位置。
-func TestSettingsTriggerRelayout(t *testing.T) {
-	a, fe, tt := newTestReader(t)
-
-	before := fe.layoutCalls
-	a.settingsOpen = true
-	tt.Frame()
-	if err := tt.Click("增大字号"); err != nil {
-		t.Fatalf("点增大字号: %v", err)
-	}
-	tt.Frame()
-	if a.State.FontScale <= 1 {
-		t.Fatalf("字号没变：%v", a.State.FontScale)
-	}
-	if fe.layoutCalls <= before {
-		t.Errorf("改字号没有触发重排：%d -> %d", before, fe.layoutCalls)
-	}
-	if a.State.Page < 0 || a.State.Page >= a.pageCount() {
-		t.Errorf("重排之后页号越界：%d / %d", a.State.Page, a.pageCount())
-	}
-}
-
-// 章尾翻页进入下一章；章首回翻进入上一章并停在最后一页。
-func TestChapterTurn(t *testing.T) {
+// 9. 主题改夜间后窗口配色和引擎纸色都变。
+func TestThemeNight(t *testing.T) {
 	a, _, tt := newTestReader(t)
-
-	a.State.Page = a.pageCount() - 1
+	tt.ClickAt(195, 400)
 	tt.Frame()
-	a.nextPage()
-	tt.Frame()
-	if a.State.Spine != 1 || a.State.Page != 0 {
-		t.Fatalf("章尾翻页后 spine/page = %d/%d, want 1/0", a.State.Spine, a.State.Page)
+	if err := tt.Click("设置"); err != nil {
+		t.Fatal(err)
 	}
-
-	a.previousPage()
 	tt.Frame()
-	if a.State.Spine != 0 {
-		t.Fatalf("章首回翻后 spine = %d, want 0", a.State.Spine)
+	if err := tt.Click("夜间"); err != nil {
+		t.Fatal(err)
 	}
-	if a.State.Page != a.pageCount()-1 {
-		t.Fatalf("回翻应停在上一章最后一页：%d / %d", a.State.Page, a.pageCount())
+	tt.Frame()
+	if a.theme != ThemeNight {
+		t.Fatalf("theme %v, want night", a.theme)
+	}
+	if a.style.Paper != 0x14161aff {
+		t.Fatalf("paper %#x", a.style.Paper)
 	}
 }
 
-// 旧状态（比如改过默认值）会被 normalize 修正。
-func TestNormalizeState(t *testing.T) {
-	a, _, _ := newTestReader(t)
-	a.State.FontScale = 0
-	a.State.LineScale = -1
-	a.State.Page = -5
-	a.State.Theme = 9
-	a.normalize()
-	if a.State.FontScale != 1 || a.State.LineScale != 1 {
-		t.Errorf("字号/行距没被修正：%v %v", a.State.FontScale, a.State.LineScale)
-	}
-	if a.State.Page != 0 || a.State.Theme != ThemePaper {
-		t.Errorf("页号/主题没被修正：%v %v", a.State.Page, a.State.Theme)
+// 10. regular 鼠标滚轮翻页。
+func TestWheelTurnsPage(t *testing.T) {
+	fe := newFakeEngine()
+	a := NewReader(fe)
+	a.Open("test.epub", nil)
+	tt := NewTester(a.View, 1200, 800)
+	tt.Frame()
+	tt.Wheel(600, 400, 0, 1)
+	tt.Advance(200 * time.Millisecond)
+	if a.page != 2 {
+		t.Fatalf("wheel: page %d, want 2", a.page)
 	}
 }
