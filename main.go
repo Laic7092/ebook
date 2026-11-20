@@ -1,57 +1,50 @@
 package main
 
 import (
-	"fmt"
+	"flag"
 	"log"
+	"os"
 
+	"github.com/Laic7092/ebook/internal/engine"
+	"github.com/Laic7092/ebook/ui"
 	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/ui"
+	myui "github.com/egoist/mygo/ui"
 )
 
-// app is the state the window shows. Its view builds the interface from
-// it, on the main thread, whenever the window needs a frame: after input,
-// after Window.Update, and while something animates.
-type app struct {
-	name  string
-	count int
-}
-
-func (a *app) view(c *ui.Context) {
-	t := c.Theme()
-	ui.Column(c).Fill().Center().Gap(16).Padding(24).Children(func() {
-		ui.Text(c, "eBook").FontSize(26).Bold()
-		ui.TextInput(c, &a.name).Placeholder("Your name").Label("Name").Width(240)
-		greeting := "Hello!"
-		if a.name != "" {
-			greeting = fmt.Sprintf("Hello, %s!", a.name)
-		}
-		ui.Text(c, greeting).TextColor(t.TextMuted)
-		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-			if ui.Button(c, "−").Width(44).Clicked() {
-				a.count--
-			}
-			ui.Textf(c, "%d", a.count).FontSize(20).Width(48).TextAlign(ui.Center)
-			if ui.PrimaryButton(c, "+").Width(44).Clicked() {
-				a.count++
-			}
-		})
-	})
-}
-
 func main() {
-	a := &app{}
+	var file string
+	flag.StringVar(&file, "open", "", "启动时打开的 EPUB/TXT 文件")
+	flag.Parse()
+	if file == "" && flag.NArg() > 0 {
+		file = flag.Arg(0)
+	}
+
+	app := ui.New(engine.New())
+
+	// 页码、字号、行距、主题和加粗都在 State 里：切换窗口重建、
+	// mygo dev 重启都读同一份。
+	mygo.KeepState(&app.State)
+
+	if file != "" {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			log.Printf("读不了 %s: %v", file, err)
+		} else if err := app.Open(file, data); err != nil {
+			log.Printf("打开 %s 失败: %v", file, err)
+		}
+	}
+
 	mygo.App.WhenReady(func() {
-		mygo.NewWindow(mygo.WindowOptions{
+		w := mygo.NewWindow(mygo.WindowOptions{
 			Title:     "eBook",
-			Width:     480,
-			Height:    360,
+			Width:     390,
+			Height:    844,
 			MinWidth:  320,
-			MinHeight: 280,
-			// Opens where the user left it last time.
-			StateKey: "main",
-			// The window shows the interface MyGo draws, not a web page.
-			Content: ui.View(a.view),
+			MinHeight: 480,
+			StateKey:  "reader",
+			Content:   myui.View(app.View),
 		})
+		app.SetWindow(w)
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)

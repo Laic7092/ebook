@@ -13,9 +13,14 @@ type Book struct {
 	TOC      []TOCEntry
 }
 
+// Chapter 是阅读顺序里的一项。标题不在 spine 里（那是导航文档的职责），
+// 显示用的章名从 TOC 里按 spine 匹配；没有 TOC 时用"第 N 章"。
 type Chapter struct {
-	Spine int
-	Title string
+	Spine  int
+	ID     string
+	Href   string
+	Media string
+	Linear bool
 }
 
 type TOCEntry struct {
@@ -36,6 +41,7 @@ type PageMeta struct {
 	Progress float32 // 本章进度 0..1
 }
 
+// 引擎返回 []PageMeta（页号即下标）；需要带着章号时宿主自己包一层。
 type Layout struct {
 	Spine int
 	Pages []PageMeta
