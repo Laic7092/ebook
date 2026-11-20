@@ -24,7 +24,15 @@ LC_SEGMENT_64 = 0x19
 MH_MAGIC_64 = 0xFEEDFACF
 MH_MAGIC = 0xFEEDFACE
 
-# 段名 16 字节，改名后长度不变；Go 只按名字匹配。
+# 段名/section 名都是 16 字节定长，改名后长度不变。
+#
+# Go 的检查（cmd/go/internal/work/security.go）认的是 `sec.Seg == "__LLVM"`，
+# 所以只改 section 名没用，**段名**也得改；section 自己的 segname 字段同样要改
+# （debug/macho 的 Section.Seg 来自那里）。
+SEGMENT_RENAMES = {
+    b"__LLVM": b"__LLVX",
+    b"__GNU_LTO": b"__GNULTO",
+}
 RENAMES = {
     b"__bitcode": b"__bitcod_",
     b"__cmdline": b"__cmdlin_",
@@ -52,6 +60,10 @@ def patch_macho64(data: bytearray, base: int, size: int) -> int:
         if cmdsize < 8:
             break
         if cmd == LC_SEGMENT_64 and offset + 72 <= base + size:
+            segname = bytes(data[offset + 8:offset + 24]).rstrip(b"\x00")
+            if segname in SEGMENT_RENAMES:
+                data[offset + 8:offset + 24] = SEGMENT_RENAMES[segname].ljust(16, b"\x00")
+                patched += 1
             nsects = struct.unpack_from("<I", data, offset + 64)[0]
             sect = offset + 72
             for _ in range(nsects):
@@ -61,6 +73,10 @@ def patch_macho64(data: bytearray, base: int, size: int) -> int:
                 replacement = RENAMES.get(name)
                 if replacement is not None:
                     data[sect:sect + 16] = replacement.ljust(16, b"\x00")
+                    patched += 1
+                sec_seg = bytes(data[sect + 16:sect + 32]).rstrip(b"\x00")
+                if sec_seg in SEGMENT_RENAMES:
+                    data[sect + 16:sect + 32] = SEGMENT_RENAMES[sec_seg].ljust(16, b"\x00")
                     patched += 1
                 sect += 80
         offset += cmdsize
@@ -90,7 +106,14 @@ def archive_members(data: bytearray):
 
 
 def has_bitcode(data: bytes) -> bool:
-    return b"__bitcode" in data or b".llvmbc" in data
+    """Go 会拒绝的特征：ELF 的 .llvmbc/.llvmcmd，或者 Mach-O 的 __LLVM 段。"""
+    return (
+        b"__bitcode" in data
+        or b".llvmbc" in data
+        or b".llvmcmd" in data
+        or b"__LLVM\x00" in data
+        or b"__GNU_LTO\x00" in data
+    )
 
 
 def main(argv):

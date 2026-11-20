@@ -104,7 +104,17 @@ echo "::endgroup::"
 
 echo "::group::Build the device app"
 cd "$root"
-go tool mygo build -platform ios
+# 引擎是 Rust 静态库。mygo 用 swiftc 做最终链接，cgo 的 LDFLAGS 在
+# c-archive 模式下不参与，所以这里把归档直接加到链接参数里（需要打了
+# MYGO_IOS_LINK_FLAGS 补丁的 mygo，见 .github/scripts/patch-mygo-ios-link.py）。
+rust_lib="$root/internal/engine/native/ios_arm64/libebook_abi.a"
+if [ ! -f "$rust_lib" ]; then
+  echo "missing $rust_lib (run scripts/build-engine.sh ios_arm64 first)" >&2
+  exit 1
+fi
+# swiftc 不认 ld 的裸参数，得用 -Xlinker 一个个转交给 ld64。
+export MYGO_IOS_LINK_FLAGS="-Xlinker -force_load -Xlinker $rust_lib"
+mygo build -platform ios
 ipa="$(ls build/ios-arm64/*.ipa | head -1)"
 echo "built $ipa"
 echo "::endgroup::"
